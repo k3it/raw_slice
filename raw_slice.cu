@@ -1,3 +1,11 @@
+/*
+###########################################################
+# raw_slice.cu - NVIDIA GPU processing of the raw ADC data
+# Author: k3it
+# Generated: 11/23/2014
+###########################################################
+*/
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -12,19 +20,6 @@
 #include "helper_functions.h"
 #include "helper_cuda.h"
 
-
-/* FILTER PARAMETERS
-
-        Low pass Direct-form FIR
-        Order 262144
-        Window Kaiser
-        Fs = 61440000 Hz
-        Fpass = 190497.31 Hz
-        Fstop = 192000.0 Hz
-        Apass = 0.1 db
-        Astop = 100 db
-
-*/
 
 // comment out to speed up execution by 30% 
 //#define USE_DBL_PRECISION_FFT
