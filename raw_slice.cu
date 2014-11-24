@@ -239,9 +239,9 @@ main(int argc, char **argv)
         if (fgets(line, sizeof line, firfile) != NULL)
         {
             #ifdef USE_DBL_PRECISION_FFT
-                h_fir[i] = strtof(line, NULL);
-            #else
                 h_fir[i] = strtod(line, NULL);
+            #else
+                h_fir[i] = strtof(line, NULL);
             #endif
             //printf("read coef: %.30f\n", h_fir[i]);
         }
