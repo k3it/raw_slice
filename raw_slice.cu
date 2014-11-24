@@ -22,7 +22,7 @@
 
 
 // comment out to speed up execution by 30% 
-//#define USE_DBL_PRECISION_FFT
+#define USE_DBL_PRECISION_FFT
 
 #define DFT_BLOCK_SIZE 1048576    // 1M real samples
 #define L_SIZE 786432             // Number of new input samples consumed per data block 
@@ -41,33 +41,33 @@
 // new_index = (index >= rot) ? index - N_ROT : FFT_SIZE - N_ROT + index
 
 // Complex multiplication
-static __device__ inline cufftComplex ComplexMul(cufftComplex a, cufftComplex b)
+static __device__ inline cufftDoubleComplex ComplexMul(cufftDoubleComplex a, cufftDoubleComplex b)
 {
-    cufftComplex c;
+    cufftDoubleComplex c;
     c.x = a.x * b.x - a.y * b.y;
     c.y = a.x * b.y + a.y * b.x;
     return c;
 }
 
 // Complex scale
-static __device__ inline cufftComplex ComplexScale(cufftComplex a, float s)
+static __device__ inline cufftDoubleComplex ComplexScale(cufftDoubleComplex a, float s)
 {
-    cufftComplex c;
+    cufftDoubleComplex c;
     c.x = s * a.x;
     c.y = s * a.y;
     return c;
 }
 
-static __device__ inline cufftComplex ComplexAdd(cufftComplex a, cufftComplex b)
+static __device__ inline cufftDoubleComplex ComplexAdd(cufftDoubleComplex a, cufftDoubleComplex b)
 {
-    cufftComplex c;
+    cufftDoubleComplex c;
     c.x = a.x + b.x;
     c.y = a.y + b.y;
     return c;
 }
 
 __global__
-void gpu_process_buffer(cufftReal * d_signal, const short * d_buffer, cufftReal * d_delay_line)
+void gpu_process_buffer(cufftDoubleReal * d_signal, const short * d_buffer, cufftDoubleReal * d_delay_line)
 {
     
     //  This is the overlap-save routine and conversion from short to float
@@ -91,8 +91,8 @@ void gpu_process_buffer(cufftReal * d_signal, const short * d_buffer, cufftReal 
 }
 
 __global__
-void gpu_mix_and_convolve(const cufftComplex *d_fft, const cufftComplex *d_fir_fft, 
-                                cufftComplex * d_receiver, cufftComplex * d_receiver2,
+void gpu_mix_and_convolve(const cufftDoubleComplex *d_fft, const cufftDoubleComplex *d_fir_fft, 
+                                cufftDoubleComplex * d_receiver, cufftDoubleComplex * d_receiver2,
                                 const int nrot, const float scale)
 {
     const size_t numThreads = blockDim.x * gridDim.x;
@@ -115,14 +115,14 @@ void gpu_mix_and_convolve(const cufftComplex *d_fft, const cufftComplex *d_fir_f
 }
 
 __global__
-void gpu_decimate(const cufftComplex * d_receiver, cufftComplex * d_slice)
+void gpu_decimate(const cufftDoubleComplex * d_receiver, cufftDoubleComplex * d_slice)
 {
     //const int numThreads = blockDim.x * gridDim.x;
     const int tid = blockIdx.x * blockDim.x + threadIdx.x;
 
     if (tid > COMPLEX_SIGNAL_SIZE/D_size) return;
 
-    cufftComplex decimated_bin;
+    cufftDoubleComplex decimated_bin;
     decimated_bin.x = 0;
     decimated_bin.y = 0;
 
@@ -142,15 +142,15 @@ main(int argc, char **argv)
 
    
     // create buffers
-    size_t fft_result_size = sizeof(cufftComplex)*COMPLEX_SIGNAL_SIZE;
+    size_t fft_result_size = sizeof(cufftDoubleComplex)*COMPLEX_SIGNAL_SIZE;
     size_t buffer_size = sizeof(short)*L_SIZE;
-    size_t delay_line_size = sizeof(cufftReal) * (P_SIZE - 1);
-    size_t d_signal_size = sizeof(cufftReal)*DFT_BLOCK_SIZE;
+    size_t delay_line_size = sizeof(cufftDoubleReal) * (P_SIZE - 1);
+    size_t d_signal_size = sizeof(cufftDoubleReal)*DFT_BLOCK_SIZE;
 
-    size_t d_fir_size = sizeof(cufftReal)*DFT_BLOCK_SIZE;
-    size_t d_fir_fft_size = sizeof(cufftComplex)*COMPLEX_SIGNAL_SIZE;
+    size_t d_fir_size = sizeof(cufftDoubleReal)*DFT_BLOCK_SIZE;
+    size_t d_fir_fft_size = sizeof(cufftDoubleComplex)*COMPLEX_SIGNAL_SIZE;
 
-    size_t rx_td_size = sizeof(cufftReal)*DFT_BLOCK_SIZE/D_size;
+    size_t rx_td_size = sizeof(cufftDoubleReal)*DFT_BLOCK_SIZE/D_size;
 
 
     // findCudaDevice(argc, (const char **)argv);
@@ -164,21 +164,21 @@ main(int argc, char **argv)
     // Allocate host-device mapped memory for the fir and buffer
     
     unsigned char *h_buffer = NULL;  // input stream buffer for ADC samples
-    cufftReal *h_fir = NULL;   // host buffer for the FIR filter coefs
-    cufftReal *h_rx_td = NULL; // decimated and filtered signal goes here
+    cufftDoubleReal *h_fir = NULL;   // host buffer for the FIR filter coefs
+    cufftDoubleReal *h_rx_td = NULL; // decimated and filtered signal goes here
 
     cudaHostAlloc((void **)&h_fir, d_fir_size, cudaHostAllocMapped); 
     cudaHostAlloc((void **)&h_buffer, buffer_size, cudaHostAllocMapped); 
     cudaHostAlloc((void **)&h_rx_td, rx_td_size, cudaHostAllocMapped); 
     
-    cufftReal *d_signal;  // time domain input signal for overlap-save
-    cufftComplex *d_fft;  // DFT of the input signal
+    cufftDoubleReal *d_signal;  // time domain input signal for overlap-save
+    cufftDoubleComplex *d_fft;  // DFT of the input signal
 
-    cufftReal *d_delay_line;  // tail of each DFT window for overlap-save
+    cufftDoubleReal *d_delay_line;  // tail of each DFT window for overlap-save
     short *d_buffer; // device pointer to h_buffer
-    cufftReal *d_fir;   // device pointer to h_fir
-    cufftComplex *d_fir_fft;  // FFT of the FIR filter for fast convolution
-    cufftReal *d_rx_td;  // device pointer to h_rx_td
+    cufftDoubleReal *d_fir;   // device pointer to h_fir
+    cufftDoubleComplex *d_fir_fft;  // FFT of the FIR filter for fast convolution
+    cufftDoubleReal *d_rx_td;  // device pointer to h_rx_td
 
 
     // get device pointers for the mapped buffers
@@ -204,12 +204,12 @@ main(int argc, char **argv)
 
 
     //allocate receiver
-    cufftComplex *d_receiver = NULL;
-    cufftComplex *d_slice = NULL;
+    cufftDoubleComplex *d_receiver = NULL;
+    cufftDoubleComplex *d_slice = NULL;
     cudaMalloc((void **)&d_receiver, fft_result_size);
     cudaMalloc((void **)&d_slice, fft_result_size/D_size);
 
-    cufftComplex *d_receiver2 = NULL;
+    cufftDoubleComplex *d_receiver2 = NULL;
     cudaMalloc((void **)&d_receiver2, fft_result_size);
 
     // ready to start processing input
@@ -238,7 +238,11 @@ main(int argc, char **argv)
     {
         if (fgets(line, sizeof line, firfile) != NULL)
         {
-            h_fir[i] = strtof(line, NULL);
+            #ifdef USE_DBL_PRECISION_FFT
+                h_fir[i] = strtof(line, NULL);
+            #else
+                h_fir[i] = strtod(line, NULL);
+            #endif
             //printf("read coef: %.30f\n", h_fir[i]);
         }
         else
@@ -258,17 +262,21 @@ main(int argc, char **argv)
      #ifdef USE_DBL_PRECISION_FFT
             cufftHandle planZ2D; // double precision IFFT plan
             cufftPlan1d(&planZ2D, DFT_BLOCK_SIZE, CUFFT_Z2D, 1);
-            
+            cufftHandle planZ;  //double precision plan
+            cufftPlan1d(&planZ, DFT_BLOCK_SIZE, CUFFT_D2Z, 1);
+
+            //calclulate and store FFT of the FIR filter
+            cufftExecD2Z(planZ, d_fir, d_fir_fft);
      #else
             cufftHandle planC;  //single precition plan
             cufftHandle planC2R; // single precision IFFT plan
             cufftPlan1d(&planC, DFT_BLOCK_SIZE, CUFFT_R2C, 1);
             cufftPlan1d(&planC2R, DFT_BLOCK_SIZE/D_size, CUFFT_C2R, 1);
-            //cufftDestroy(planZ);
+
+            //calclulate and store FFT of the FIR filter
+            cufftExecR2C(planC, d_fir, d_fir_fft);
      #endif
 
-    //calclulate and store FFT of the FIR filter
-    cufftExecR2C(planC, d_fir, d_fir_fft);
 
 
     //cudaDeviceSynchronize(); getLastCudaError("Kernel execution failed [ FIR FFT ]");
@@ -279,7 +287,7 @@ main(int argc, char **argv)
 
     int discard_size = (P_SIZE-1)/D_size;
     int td_size = L_SIZE/D_size;
-    fprintf(stderr, "IFFT discard samples %d, keep %d, output sample size %d bytes(floating pt)\n", discard_size, td_size, sizeof(cufftReal));
+    fprintf(stderr, "IFFT discard samples %d, keep %d, output sample size %d bytes(floating pt)\n", discard_size, td_size, sizeof(cufftDoubleReal));
 
     timer.Stop();
     fprintf(stderr, "Setup complete in %g ms\n", timer.Elapsed());
@@ -310,7 +318,7 @@ main(int argc, char **argv)
                 cufftExecD2Z(planZ, d_signal, d_fft);
         #else 
                 //call single precision real-to-complex FFT
-                cufftExecR2C(planC, (cufftReal *) d_signal, (cufftComplex *) d_fft);
+                cufftExecR2C(planC, (cufftDoubleReal *) d_signal, (cufftDoubleComplex *) d_fft);
         #endif
 
         gpu_mix_and_convolve<<<128, 1024>>>(d_fft, d_fir_fft, d_receiver, d_receiver2, (int)nrot, 1.0f/COMPLEX_SIGNAL_SIZE);
@@ -320,14 +328,14 @@ main(int argc, char **argv)
         #ifdef USE_DBL_PRECISION_FFT
                 cufftExecZ2D(planZ2D, d_slice, d_rx_td);
         #else
-                cufftExecC2R(planC2R, (cufftComplex *) d_slice, (cufftReal *) d_rx_td);
+                cufftExecC2R(planC2R, (cufftDoubleComplex *) d_slice, (cufftDoubleReal *) d_rx_td);
         #endif
 
         //cudaDeviceSynchronize(); getLastCudaError("Kernel execution failed [ IFFT ]");
 
         if (skip == 0) 
         {
-            fwrite(h_rx_td+discard_size, sizeof(cufftReal), td_size, stdout);
+            fwrite(h_rx_td+discard_size, sizeof(cufftDoubleReal), td_size, stdout);
         }
         else
         {
