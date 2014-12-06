@@ -32,7 +32,7 @@
 
 #define SAMPLING_RATE 61440000    // Hz
 #define D_size 256                // decimation factor 256 = 120 khz I/Q signal
-#define LO 14040078.125           // LO
+#define LO 14000078.125           // LO
 //#define N_ROT  240300           // LO = 14080078.125 Hz  Nrot = round(COMPLEX_SIGNAL_SIZE*LO/V_SIZE*SAMPLING_RATE) * V_SIZE
 #define SAMPLE_LEN 16       // 16 bit real samples
 
@@ -136,8 +136,10 @@ void gpu_mix_and_convolve(const cufftComplex *d_fft, const cufftComplex *d_fir_f
     for (int i = tid; i < COMPLEX_SIGNAL_SIZE; i += numThreads)
     {
         new_index = (i >= nrot) ? i - nrot : COMPLEX_SIGNAL_SIZE - nrot + i;
-        //d_receiver[i]  = d_fft[new_index];
-        d_receiver[i] = ComplexScale(ComplexMul(d_fft[new_index], d_fir_fft[i]), scale);
+        d_receiver[new_index]  = d_fft[i];
+        //d_receiver[i] = ComplexScale(ComplexMul(d_fft[new_index], d_fir_fft[i]), scale);
+        
+        //d_receiver[new_index] = ComplexScale(ComplexMul(d_fft[i], d_fir_fft[i]), scale);
         
     }
 
@@ -172,6 +174,8 @@ void gpu_decimate(const cufftComplex * d_receiver, cufftComplex * d_slice)
     }
 
     d_slice[tid] = decimated_bin;
+    // no folding
+    d_slice[tid] = d_receiver[tid];
     
 }
 
@@ -349,7 +353,7 @@ main(int argc, char **argv)
 
     // calculate FFT bin rotation value for the mixer 
     double nrot = round((double)LO*(COMPLEX_SIGNAL_SIZE) / ((double)V_SIZE*(SAMPLING_RATE/2))) * V_SIZE;
-    fprintf(stderr, "FFT rotation %d bins resulting in LO %.11g Hz\n", (int)nrot, nrot*SAMPLING_RATE/COMPLEX_SIGNAL_SIZE);
+    fprintf(stderr, "FFT rotation %d bins resulting in LO %.11g Hz\n", (int)nrot, nrot*(SAMPLING_RATE/2)/COMPLEX_SIGNAL_SIZE);
 
     int discard_size = (P_SIZE-1)/D_size;
     int td_size = L_SIZE/D_size;
@@ -360,7 +364,7 @@ main(int argc, char **argv)
     
     timer.Start();
 
-    int skip = 10;  // number of initial frames to skip
+    int skip = 1;  // number of initial frames to skip
             printf("blah\n");
 
 
@@ -415,13 +419,13 @@ main(int argc, char **argv)
             //fwrite(h_rx_td+discard_size, sizeof(cufftReal), td_size, stdout);
             // fwrite(h_fft+1, sizeof(float), fft_result_size/2, stdout);
             // fprintf(stderr, "wrote %d x %d = %d bytes\n", sizeof(cufftComplex), COMPLEX_SIGNAL_SIZE, sizeof(cufftComplex)*COMPLEX_SIGNAL_SIZE);
-            fprintf(stderr, "h_fft_magnitude[1] = %f, h_fft_magnitude[2] = %f, nrot: %g\n", h_fft_magnitude[1], h_fft_magnitude[2], nrot);
+            //fprintf(stderr, "h_fft_magnitude[1] = %f, h_fft_magnitude[2] = %f, nrot: %g\n", h_fft_magnitude[1], h_fft_magnitude[2], nrot);
             // fprintf(stderr, "fft[2] = %f + %fj, fft[3] = %f +%fj\n", h_fft[2].x, h_fft[2].y, h_fft[3].x, h_fft[3].y);
             // fprintf(stderr, "%x\n", *(unsigned int*)&h_fft[0]);
             // //exit(255);
-            skip = 5;
-            nrot -= 200;
-            nrot = 58816;
+            skip = 1;
+            //nrot -= 200;
+            //nrot = 58816;
         }
         else
         {

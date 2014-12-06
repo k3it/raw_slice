@@ -166,10 +166,12 @@ main(int argc, char **argv)
     unsigned char *h_buffer = NULL;  // input stream buffer for ADC samples
     cufftReal *h_fir = NULL;   // host buffer for the FIR filter coefs
     cufftReal *h_rx_td = NULL; // decimated and filtered signal goes here
+    cufftComplex *h_fft;
 
     cudaHostAlloc((void **)&h_fir, d_fir_size, cudaHostAllocMapped); 
     cudaHostAlloc((void **)&h_buffer, buffer_size, cudaHostAllocMapped); 
     cudaHostAlloc((void **)&h_rx_td, rx_td_size, cudaHostAllocMapped); 
+    cudaHostAlloc((void **)&h_fft, fft_result_size, cudaHostAllocMapped); 
     
     cufftReal *d_signal;  // time domain input signal for overlap-save
     cufftComplex *d_fft;  // DFT of the input signal
@@ -186,11 +188,12 @@ main(int argc, char **argv)
     cudaHostGetDevicePointer((void **)&d_fir, (void *) h_fir, 0);
     cudaHostGetDevicePointer((void **)&d_buffer, (void *) h_buffer, 0);
     cudaHostGetDevicePointer((void **)&d_rx_td, (void *) h_rx_td, 0);
+    cudaHostGetDevicePointer((void **)&d_fft, (void *) h_fft, 0);
 
     // allocate device memory for overlap-save
     cudaMalloc((void **)&d_delay_line, delay_line_size);
     cudaMalloc((void **)&d_signal, d_signal_size);
-    cudaMalloc((void **)&d_fft, fft_result_size);
+    //cudaMalloc((void **)&d_fft, fft_result_size);
     cudaMalloc((void **)&d_fir_fft, d_fir_fft_size);
 
   
@@ -250,6 +253,26 @@ main(int argc, char **argv)
 
     }
 
+    #define SRV_IP "192.168.123.2"
+    #define PORT 1234
+
+    struct sockaddr_in si_other;
+    int s, i, slen=sizeof(si_other);
+    char buf[1024];
+
+    if ((s=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP))==-1)
+        diep("socket");
+
+    memset((char *) &si_other, 0, sizeof(si_other));
+    si_other.sin_family = AF_INET;
+    si_other.sin_port = htons(PORT);
+    if (inet_aton(SRV_IP, &si_other.sin_addr)==0) {
+      fprintf(stderr, "inet_aton() failed\n");
+      exit(1);
+    }
+    
+
+
     // CUFFT plan
     //cufftHandle planZ;  //double precision plan
     //cufftPlan1d(&planZ, DFT_BLOCK_SIZE, CUFFT_D2Z, 1);
@@ -286,7 +309,7 @@ main(int argc, char **argv)
     
     timer.Start();
 
-    int skip = 2;  // number of initial frames to skip
+    int skip = 100;  // number of initial frames to skip
 
     for(;;)
     {
@@ -327,7 +350,18 @@ main(int argc, char **argv)
 
         if (skip == 0) 
         {
-            fwrite(h_rx_td+discard_size, sizeof(cufftReal), td_size, stdout);
+            cudaDeviceSynchronize();
+            if (sendto(s, buf, BUFLEN, 0, &si_other, slen)==-1)
+                diep("sendto()");
+            }
+            //fwrite(h_rx_td+discard_size, sizeof(cufftReal), td_size, stdout);
+            fwrite(h_fft+1, sizeof(float), fft_result_size/2, stdout);
+            fprintf(stderr, "wrote %d x %d = %d bytes\n", sizeof(cufftComplex), COMPLEX_SIGNAL_SIZE, sizeof(cufftComplex)*COMPLEX_SIGNAL_SIZE);
+            fprintf(stderr, "fft[0] = %f + %fj, fft[1] = %f +%fj\n", h_fft[0].x, h_fft[0].y, h_fft[1].x, h_fft[1].y);
+            fprintf(stderr, "fft[2] = %f + %fj, fft[3] = %f +%fj\n", h_fft[2].x, h_fft[2].y, h_fft[3].x, h_fft[3].y);
+            fprintf(stderr, "%x\n", *(unsigned int*)&h_fft[0]);
+            //exit(255);
+            skip = 100;
         }
         else
         {
