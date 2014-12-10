@@ -16,6 +16,7 @@
 
 #include <cuda_runtime.h>
 #include <cufft.h>
+#include "../../NVIDIA_CUDA-6.0_Samples/0_Simple/simplePrintf/cuPrintf.cu"
 
 #include "helper_functions.h"
 #include "helper_cuda.h"
@@ -23,6 +24,8 @@
 #include <errno.h>
 #include <unistd.h>
 #include <netinet/in.h>
+
+
 
 #define P_SIZE 262145              // FIR Length
 #define V_SIZE 4                  // Overlap factor  V = N/(P-1)
@@ -136,10 +139,16 @@ void gpu_mix_and_convolve(const cufftComplex *d_fft, const cufftComplex *d_fir_f
     for (int i = tid; i < COMPLEX_SIGNAL_SIZE; i += numThreads)
     {
         new_index = (i >= nrot) ? i - nrot : COMPLEX_SIGNAL_SIZE - nrot + i;
-        d_receiver[new_index]  = d_fft[i];
+        //d_receiver[new_index]  = d_fft[i];
         //d_receiver[i] = ComplexScale(ComplexMul(d_fft[new_index], d_fir_fft[i]), scale);
         
-        //d_receiver[new_index] = ComplexScale(ComplexMul(d_fft[i], d_fir_fft[i]), scale);
+        d_receiver[new_index] = ComplexScale(ComplexMul(d_fft[i], d_fir_fft[new_index]), scale);
+        // if (new_index == 5)
+        // {
+        //          cuPrintf("new_index=%d, d_fir_fft=%g \n", new_index, d_fir_fft[new_index]);
+        //          cuPrintf("mix and convolve\n");
+        // }
+
         
     }
 
@@ -190,8 +199,8 @@ main(int argc, char **argv)
     size_t delay_line_size = sizeof(cufftReal) * (P_SIZE - 1);
     size_t d_signal_size = sizeof(cufftReal)*DFT_BLOCK_SIZE;
 
-    size_t d_fir_size = sizeof(cufftReal)*DFT_BLOCK_SIZE;
-    size_t d_fir_fft_size = sizeof(cufftComplex)*(COMPLEX_SIGNAL_SIZE+1);
+    //size_t d_fir_size = sizeof(cufftReal)*DFT_BLOCK_SIZE;
+    //size_t d_fir_fft_size = sizeof(cufftComplex)*(COMPLEX_SIGNAL_SIZE+1);
 
     size_t rx_td_size = sizeof(cufftComplex)*COMPLEX_SIGNAL_SIZE/D_size;
 
@@ -208,14 +217,16 @@ main(int argc, char **argv)
     
     unsigned char *h_buffer = NULL;  // input stream buffer for ADC samples
     cufftReal *h_fir = NULL;   // host buffer for the FIR filter coefs
+    cufftComplex *h_fir_fft = NULL;   // host buffer for the FIR filter coefs
     cufftReal *h_rx_td = NULL; // decimated and filtered signal goes here
     cufftComplex *h_fft;
     cufftReal *h_fft_magnitude;
 
-    cudaHostAlloc((void **)&h_fir, d_fir_size, cudaHostAllocMapped); 
+    cudaHostAlloc((void **)&h_fir, d_signal_size, cudaHostAllocMapped); 
     cudaHostAlloc((void **)&h_buffer, buffer_size, cudaHostAllocMapped); 
     cudaHostAlloc((void **)&h_rx_td, rx_td_size, cudaHostAllocMapped); 
     cudaHostAlloc((void **)&h_fft, fft_result_size, cudaHostAllocMapped); 
+    cudaHostAlloc((void **)&h_fir_fft, fft_result_size, cudaHostAllocMapped); 
     cudaHostAlloc((void **)&h_fft_magnitude, 2048*sizeof(cufftReal), cudaHostAllocMapped); 
     
     cufftReal *d_signal;  // time domain input signal for overlap-save
@@ -232,6 +243,7 @@ main(int argc, char **argv)
     // get device pointers for the mapped buffers
     //cudaHostGetDevicePointer((void **)&d_signal, (void *) h_signal, 0);
     cudaHostGetDevicePointer((void **)&d_fir, (void *) h_fir, 0);
+    cudaHostGetDevicePointer((void **)&d_fir_fft, (void *) h_fir_fft, 0);
     cudaHostGetDevicePointer((void **)&d_buffer, (void *) h_buffer, 0);
     cudaHostGetDevicePointer((void **)&d_rx_td, (void *) h_rx_td, 0);
     cudaHostGetDevicePointer((void **)&d_fft, (void *) h_fft, 0);
@@ -241,7 +253,7 @@ main(int argc, char **argv)
     cudaMalloc((void **)&d_delay_line, delay_line_size);
     cudaMalloc((void **)&d_signal, d_signal_size);
     //cudaMalloc((void **)&d_fft, fft_result_size);
-    cudaMalloc((void **)&d_fir_fft, d_fir_fft_size);
+    //cudaMalloc((void **)&d_fir_fft, fft_result_size);
 
   
     // zero out buffers using the GPU
@@ -249,7 +261,7 @@ main(int argc, char **argv)
     cudaMemset(d_signal, 0, d_signal_size);
     cudaMemset(d_buffer, 0, buffer_size);
     cudaMemset(d_delay_line, 0, delay_line_size);
-    cudaMemset(d_fir, 0, d_fir_size);
+    cudaMemset(d_fir, 0, d_signal_size);
     cudaMemset(d_rx_td, 0, rx_td_size);
 
 
@@ -349,6 +361,12 @@ main(int argc, char **argv)
 
     gpu_make_analytic<<<COMPLEX_SIGNAL_SIZE/4096, 1024>>>(d_fir_fft);
 
+    // for (int i=0; i < COMPLEX_SIGNAL_SIZE; i++)
+    // {
+    //     fprintf(stderr, "FFT FIR coef %d:%g\n", i, sqrt(h_fir_fft[i].x*h_fir_fft[i].x+h_fir_fft[i].y*h_fir_fft[i].y));
+    // }
+
+
     //cudaDeviceSynchronize(); getLastCudaError("Kernel execution failed [ FIR FFT ]");
 
     // calculate FFT bin rotation value for the mixer 
@@ -415,6 +433,13 @@ main(int argc, char **argv)
                  fprintf(stderr, "%s\n",strerror(errno));
                  exit(1);
             }
+
+        //     for (int i=0; i < COMPLEX_SIGNAL_SIZE; i++)
+        // {
+        //     fprintf(stderr, "h_receiver %d:%g\n", i, sqrt(h_receiver[i].x*h_receiver[i].x+h_receiver[i].y*h_receiver[i].y));
+        // }
+        // exit(1);
+
 
             //fwrite(h_rx_td+discard_size, sizeof(cufftReal), td_size, stdout);
             // fwrite(h_fft+1, sizeof(float), fft_result_size/2, stdout);
